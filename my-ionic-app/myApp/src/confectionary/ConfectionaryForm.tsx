@@ -35,8 +35,6 @@ const ConfectionaryForm: React.FC<ConfectionaryEditProps> = ({history, match}) =
     const [confectionary, setConfectionary] = useState<ConfectionaryProps>();
 
     const {networkStatus} = useNetwork();
-    const [showToast, setShowToast] = useState(false);
-    const [toastMessage, setToastMessage] = useState('');
 
     const resetFields = () =>{
         setName('');
@@ -74,15 +72,11 @@ const ConfectionaryForm: React.FC<ConfectionaryEditProps> = ({history, match}) =
         try {
             await saveConfectionary?.(edited);
             if (!networkStatus.connected) {
-                setToastMessage("📦 Item salvat local — va fi sincronizat când revii online.");
-            } else {
-                setToastMessage("✅ Item salvat cu succes!");
+                alert("📦 Item salvat local — va fi sincronizat când revii online.");
             }
-            setShowToast(true);
             history.push('/confectionaries');
         } catch (error) {
-            setToastMessage("⚠️ Eroare — itemul a fost salvat local.");
-            setShowToast(true);
+            alert(`❗Error: ${error}`);
             history.push('/confectionaries');
         }
     }, [confectionary, saveConfectionary, name, date, inCluj, rating, networkStatus.connected, history]);

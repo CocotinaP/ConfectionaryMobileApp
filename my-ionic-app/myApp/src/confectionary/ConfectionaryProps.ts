@@ -4,4 +4,5 @@ export interface ConfectionaryProps {
     date : Date;
     inCluj : boolean;
     rating: number;
+    localId?: any;
 }

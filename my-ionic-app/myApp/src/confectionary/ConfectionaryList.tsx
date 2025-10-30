@@ -37,16 +37,6 @@ const ConfectionaryList: React.FC<RouteComponentProps> = ({ history }) => {
     const [disableInfiniteScroll, setDisableInfiniteScroll] = useState<boolean>(false);
     const {networkStatus} = useNetwork();
 
-    const [showOfflineToast, setShowOfflineToast] = useState(false);
-
-    useEffect(() => {
-        if (offlineCount && offlineCount > 0) {
-            setShowOfflineToast(true);
-        } else {
-            setShowOfflineToast(false);
-        }
-    }, [offlineCount]);
-
     useEffect(() => {
         if (confectionaries && confectionaries.length > 0) {
             let filtered : ConfectionaryProps[] = [];
@@ -108,15 +98,6 @@ const ConfectionaryList: React.FC<RouteComponentProps> = ({ history }) => {
                     </IonButtons>
                 </IonToolbar>
             </IonHeader>
-            {/* Toast de informare */}
-            <IonToast
-                isOpen={showOfflineToast}
-                onDidDismiss={() => setShowOfflineToast(false)}
-                message={`⚠️ ${offlineCount} iteme sunt stocate local și vor fi sincronizate când revii online.`}
-                duration={5000}
-                color="warning"
-                position="top"
-            />
             <IonContent>
                 <IonSearchbar
                     value={search}
