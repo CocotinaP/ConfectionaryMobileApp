@@ -145,19 +145,22 @@ export const ConfectionaryProvider: React.FC<ConfectionaryProviderProps> = ({chi
         const { value } = await Preferences.get({ key: 'offlineItems' });
         const items: ConfectionaryProps[] = value ? JSON.parse(value) : [];
 
-        if (!token || items.length === 0) return;
+        if (!token || items.length === 0) {
+            // 🔄 Reîncarcă lista de pe server chiar dacă nu sunt elemente offline
+            fetchConfectionaries(token, dispatch);
+            return;
+        }
 
         const remaining: ConfectionaryProps[] = [];
 
         for (const item of items) {
             try {
                 const { localId, ...payload } = item;
-                await createConfectionary(token, payload);
+                const saved = await createConfectionary(token, payload);
 
-                log(`remove local ${localId}`)
-                dispatch({ type: 'REMOVE_LOCAL_ITEM', payload: { localId } });
+                dispatch({ type: REMOVE_LOCAL_ITEM, payload: { localId } });
+                dispatch({ type: SAVE_CONFECTIONARIES_SUCCEEDED, payload: { confectionary: saved } });
             } catch (e) {
-                log("Sync failed for item:", item);
                 remaining.push(item);
             }
         }
@@ -169,7 +172,10 @@ export const ConfectionaryProvider: React.FC<ConfectionaryProviderProps> = ({chi
             await Preferences.set({ key: 'offlineItems', value: JSON.stringify(remaining) });
             dispatch({ type: UPDATE_OFFLINE_COUNT, payload: { count: remaining.length } });
         }
+
+        fetchConfectionaries(token, dispatch);
     }
+
 
 
     log(`returns -fetching = ${fetching}, items = ${JSON.stringify(confectionaries)}`);
@@ -180,14 +186,13 @@ export const ConfectionaryProvider: React.FC<ConfectionaryProviderProps> = ({chi
     );
 
     function getConfectionariesEffect() {
-        let canceled = false;
+        //let canceled = false;
         if (token) {
-            fetchConfectionaries();
+            return fetchConfectionaries(token, dispatch);
         }
-        return () => {
-            canceled = true;
-        }
+        return () => {};
 
+        /*
         async function fetchConfectionaries() {
             try {
                 log("fetchConfectionaries started");
@@ -203,8 +208,34 @@ export const ConfectionaryProvider: React.FC<ConfectionaryProviderProps> = ({chi
                     dispatch({type: FETCH_CONFECTIONARIES_FAILED, payload: { error }});
                 }
             }
-        }
+        }*/
     }
+
+    function fetchConfectionaries(token: string, dispatch: React.Dispatch<ActionProps>) {
+        let canceled = false;
+
+        (async () => {
+            try {
+                log("fetchConfectionaries started");
+                dispatch({type: FETCH_CONFECTIONARIES_STARTED});
+                const confectionaries = await getConfectionaries(token);
+                log("fetchConfectionaries succeeded");
+                if (!canceled) {
+                    dispatch({type: FETCH_CONFECTIONARIES_SUCCEEDED, payload: { confectionaries }});
+                }
+            } catch (error) {
+                log("fetchConfectionaries failed");
+                if (!canceled) {
+                    dispatch({type: FETCH_CONFECTIONARIES_FAILED, payload: { error }});
+                }
+            }
+        })();
+
+        return () => {
+            canceled = true;
+        };
+    }
+
 
     async function storeOfflineItem(localItem: ConfectionaryProps) {
         const { value } = await Preferences.get({ key: 'offlineItems' });
