@@ -1,6 +1,6 @@
 import {getLogger} from "../core";
 import {ConfectionaryProps} from "./ConfectionaryProps";
-import React, {useCallback, useContext, useEffect, useReducer} from "react";
+import React, {useCallback, useContext, useEffect, useReducer, useState} from "react";
 import {
     createConfectionary,
     deleteConfectionaryApi,
@@ -9,6 +9,8 @@ import {
     updateConfectionary
 } from "./confectionaryApi";
 import {AuthContext} from "../auth";
+import {useNetwork} from "./useNetwork";
+import {Preferences} from "@capacitor/preferences";
 
 const log = getLogger("ItemProvider");
 
@@ -25,6 +27,7 @@ export interface ConfectionariesState {
     deletingError?: Error | null,
     saveConfectionary?: SaveConfectionaryFn,
     deleteConfectionary?: DeleteConfectionaryFn,
+    offlineCount?: number,
 }
 
 interface ActionProps{
@@ -36,6 +39,7 @@ const initialState: ConfectionariesState = {
     fetching: false,
     saving: false,
     deleting: false,
+    offlineCount: 0,
 }
 
 const FETCH_CONFECTIONARIES_STARTED = 'FETCH_CONFECTIONARIES_STARTED';
@@ -47,6 +51,8 @@ const SAVE_CONFECTIONARIES_FAILED = 'SAVE_CONFECTIONARIES_FAILED';
 const DELETE_CONFECTIONARY_STARTED = 'DELETE_CONFECTIONARY_STARTED';
 const DELETE_CONFECTIONARY_SUCCEEDED = 'DELETE_CONFECTIONARY_SUCCEEDED';
 const DELETE_CONFECTIONARY_FAILED = 'DELETE_CONFECTIONARY_FAILED';
+const SAVE_CONFECTIONARY_OFFLINE = 'SAVE_CONFECTIONARY_OFFLINE';
+const UPDATE_OFFLINE_COUNT = 'UPDATE_OFFLINE_COUNT';
 
 const reducer: (state: ConfectionariesState, action: ActionProps) => ConfectionariesState =
     (state, { type, payload }) => {
@@ -80,6 +86,12 @@ const reducer: (state: ConfectionariesState, action: ActionProps) => Confectiona
                 confectionaries: (state.confectionaries || []).filter(c => c._id !== id), deleting: false};
             case DELETE_CONFECTIONARY_FAILED:
                 return {...state, deletingError: payload.error, fetching: false};
+            case SAVE_CONFECTIONARY_OFFLINE:
+                const offlineConfectionaries = [...(state.confectionaries || [])];
+                offlineConfectionaries.unshift(payload.confectionary);
+                return { ...state, confectionaries: offlineConfectionaries, saving: false };
+            case UPDATE_OFFLINE_COUNT:
+                return {...state, offlineCount: payload.count};
             default:
                 return state;
         }
@@ -94,6 +106,8 @@ interface ConfectionaryProviderProps {
 export const ConfectionaryProvider: React.FC<ConfectionaryProviderProps> = ({children}) => {
     const [state, dispatch] = useReducer(reducer, initialState);
     const { token } = useContext(AuthContext);
+    const {networkStatus} = useNetwork();
+    const isOnline = networkStatus.connected;
     const { confectionaries, fetching, fetchingError, saving, savingError, deleting, deletingError } = state;
 
     const saveConfectionary = useCallback<SaveConfectionaryFn>(saveConfectionariesCallback, [token]);
@@ -103,6 +117,46 @@ export const ConfectionaryProvider: React.FC<ConfectionaryProviderProps> = ({chi
 
     useEffect(getConfectionariesEffect, [token]);
     useEffect(wsEffect, [token]);
+    useEffect(() => {
+        if (isOnline){
+            syncOfflineItems();
+        } else {
+            checkOfflineCount();
+        }
+    }, [isOnline]);
+
+    async function checkOfflineCount() {
+        const {value} = await Preferences.get({key: 'offlineItems'});
+        const items = value ? JSON.parse(value) : [];
+        dispatch({type: UPDATE_OFFLINE_COUNT, payload: {count: items.length}});
+    }
+
+    async function syncOfflineItems() {
+        const {value} = await Preferences.get({key: 'offlineItems'});
+        const items = value ? JSON.parse(value) : [];
+
+        if (!token || items.length === 0) return;
+
+        const remaining: ConfectionaryProps[] = [];
+
+        for (const item of items) {
+            try {
+                const saved = await createConfectionary(token, item);
+                dispatch({type: SAVE_CONFECTIONARIES_SUCCEEDED, payload: {confectionary: saved}});
+            } catch (e) {
+                log("sync failed for item", item);
+                remaining.push(item);
+            }
+        }
+
+        if (remaining.length === 0) {
+            await Preferences.remove({key: 'offlineItems'});
+            dispatch({type: UPDATE_OFFLINE_COUNT, payload: {count: 0}});
+        } else {
+            await Preferences.set({key: 'offlineItems', value: JSON.stringify(remaining)});
+            dispatch({type: UPDATE_OFFLINE_COUNT, payload: {count: remaining.length}});
+        }
+    }
 
     log(`returns -fetching = ${fetching}, items = ${JSON.stringify(confectionaries)}`);
     return (
@@ -138,7 +192,26 @@ export const ConfectionaryProvider: React.FC<ConfectionaryProviderProps> = ({chi
         }
     }
 
+    async function storeOfflineItem(item: ConfectionaryProps) {
+        log("Stocare offline:", item);
+        const {value} = await Preferences.get({key: 'offlineItems'});
+        const items = value ? JSON.parse(value) : [];
+        items.push(item);
+        await Preferences.set({key: 'offlineItems', value: JSON.stringify(items)});
+        dispatch({type: UPDATE_OFFLINE_COUNT, payload: {count: items.length}});
+    }
+
     async function saveConfectionariesCallback(confectionary: ConfectionaryProps) {
+        dispatch({ type: SAVE_CONFECTIONARIES_STARTED });
+        if (!isOnline){
+            log("Offline - storing locally");
+            await storeOfflineItem(confectionary);
+            dispatch({
+                type: SAVE_CONFECTIONARY_OFFLINE,
+                payload: { confectionary },
+            });
+            return Promise.resolve();
+        }
         try{
             log("saveConfectionaries started");
             dispatch({type: SAVE_CONFECTIONARIES_STARTED});
@@ -147,7 +220,9 @@ export const ConfectionaryProvider: React.FC<ConfectionaryProviderProps> = ({chi
             dispatch({type: SAVE_CONFECTIONARIES_SUCCEEDED, payload: {confectionary: savedConfectionary}});
         } catch (error){
             log("saveConfectionaries failed");
-            dispatch({type: SAVE_CONFECTIONARIES_FAILED, payload: { error }});
+            dispatch({type: SAVE_CONFECTIONARY_OFFLINE, payload: {confectionary}});
+            throw error;
+            //dispatch({type: SAVE_CONFECTIONARIES_FAILED, payload: { error }});
         }
     }
 

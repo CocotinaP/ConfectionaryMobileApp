@@ -32,9 +32,11 @@ const Confectionary:React.FC<ConfectionaryPropsExt> = (props: ConfectionaryProps
             </IonCardHeader>
             <IonCardContent className="card-content">
                 <IonItem lines="none" onClick={() => props.onEdit(props._id)}>
-                    <IonLabel>Date: {new Date(props.date).toLocaleDateString()}📅</IonLabel>
-                    <IonLabel>In Cluj: {props.inCluj ? "Yes👍" : "No👎"}</IonLabel>
-                    <IonLabel>Rating: {props.rating}⭐</IonLabel>
+                    <div style={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
+                        <IonLabel>Date: {new Date(props.date).toLocaleDateString()}📅</IonLabel>
+                        <IonLabel>In Cluj: {props.inCluj ? "Yes👍" : "No👎"}</IonLabel>
+                        <IonLabel>Rating: {props.rating}⭐</IonLabel>
+                    </div>
                     <IonButton color="danger" expand="block" onClick={(e) => {
                         e.stopPropagation();
                         console.log(`delete click ${props._id}`);

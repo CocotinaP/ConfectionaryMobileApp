@@ -1,6 +1,7 @@
 import {getLogger} from "../core";
 import React, {useCallback, useEffect, useState} from "react";
 import {login as loginApi} from "./authApi"
+import {Preferences} from "@capacitor/preferences";
 
 const log = getLogger("AuthProvider");
 
@@ -40,15 +41,20 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     const logout = useCallback<LogoutFn>(logoutCallback, []);
     useEffect(authenticationEffect, [pendingAuthentication]);
     useEffect(() => {
-        const storedToken = localStorage.getItem("token");
-        if (storedToken){
-            setState(prev => ({
-                ...prev,
-                token: storedToken,
-                isAuthenticated: true,
-            }))
+        //const storedToken = localStorage.getItem("token");
+        const loadToken = async () => {
+            const { value } = await Preferences.get({key: 'token'});
+            if (value){
+                setState(prev => ({
+                    ...prev,
+                    token: value,
+                    isAuthenticated: true,
+                }))
+            }
         }
+        loadToken();
     },[]);
+    /*
     useEffect(() => {
         const handleStorageChange = (event: StorageEvent) => {
             if (event.key === 'token') {
@@ -63,7 +69,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
         window.addEventListener('storage', handleStorageChange);
         return () => window.removeEventListener('storage', handleStorageChange);
-    }, []);
+    }, []);*/
 
 
     const value = { isAuthenticated, login, isAuthenticating, authenticationError, token, logout };
@@ -75,8 +81,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     );
 
     function logoutCallback () {
-        localStorage.removeItem("token");
-        setState({...initialState});
+        Preferences.remove({ key: 'token' }).then(() => {
+            setState({ ...initialState });
+        });
     }
 
     function loginCallback(username?: string, password?: string): void {
@@ -113,7 +120,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                     return;
                 }
                 log('authenticate succeeded');
-                localStorage.setItem('token', token);
+                await Preferences.set({key: 'token', value: token});
                 setState({
                     ...state,
                     token,

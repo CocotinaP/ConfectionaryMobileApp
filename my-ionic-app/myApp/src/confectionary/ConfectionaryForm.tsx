@@ -17,6 +17,7 @@ import {RouteComponentProps} from "react-router";
 import {ConfectionaryProps} from "./ConfectionaryProps";
 import {ConfectionaryContext} from "./ConfectionaryProvider";
 import {getLogger} from "../core";
+import {useNetwork} from "./useNetwork";
 
 interface ConfectionaryEditProps extends RouteComponentProps<{
     id?: string;
@@ -32,6 +33,10 @@ const ConfectionaryForm: React.FC<ConfectionaryEditProps> = ({history, match}) =
     const [inCluj, setInCluj] = useState(true);
     const [rating, setRating] = useState('');
     const [confectionary, setConfectionary] = useState<ConfectionaryProps>();
+
+    const {networkStatus} = useNetwork();
+    const [showToast, setShowToast] = useState(false);
+    const [toastMessage, setToastMessage] = useState('');
 
     const resetFields = () =>{
         setName('');
@@ -54,11 +59,33 @@ const ConfectionaryForm: React.FC<ConfectionaryEditProps> = ({history, match}) =
         }
     }, [match.params.id, confectionaries]);
 
+    /*
     const save = useCallback(() => {
         const editedConfectionary = confectionary ? {... confectionary, name: name, date:new Date(date), inCluj: inCluj, rating: parseInt(rating) }
             : {name: name, date: new Date(date), inCluj: inCluj, rating: parseInt(rating)};
         saveConfectionary && saveConfectionary(editedConfectionary).then(() => history.push('/confectionaries'));
     }, [confectionary, saveConfectionary, name, date, inCluj, rating, history]);
+ */
+    const save = useCallback(async () => {
+        const edited: ConfectionaryProps = confectionary
+            ? {...confectionary, name, date: new Date(date), inCluj, rating: parseInt(rating)}
+            : {name, date: new Date(date), inCluj, rating: parseInt(rating)};
+
+        try {
+            await saveConfectionary?.(edited);
+            if (!networkStatus.connected) {
+                setToastMessage("📦 Item salvat local — va fi sincronizat când revii online.");
+            } else {
+                setToastMessage("✅ Item salvat cu succes!");
+            }
+            setShowToast(true);
+            history.push('/confectionaries');
+        } catch (error) {
+            setToastMessage("⚠️ Eroare — itemul a fost salvat local.");
+            setShowToast(true);
+            history.push('/confectionaries');
+        }
+    }, [confectionary, saveConfectionary, name, date, inCluj, rating, networkStatus.connected, history]);
 
     log("render");
     return (
