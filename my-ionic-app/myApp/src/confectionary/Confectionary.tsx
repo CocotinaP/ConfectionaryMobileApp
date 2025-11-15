@@ -19,12 +19,14 @@ const log = getLogger("Confectionary");
 
 interface ConfectionaryPropsExt extends ConfectionaryProps {
     onEdit: (id?: string) => void;
+    localId?: any;
 }
 
 const Confectionary:React.FC<ConfectionaryPropsExt> = (props: ConfectionaryPropsExt) => {
     const {deleteConfectionary} = useContext(ConfectionaryContext);
 
     log(`render ${props.name}`);
+    console.log("props received", props);
     return (
         <IonCard button={true} onClick={() => console.log(`Clicked ${props.name}`)}>
             <IonCardHeader className="card-header">
@@ -37,13 +39,15 @@ const Confectionary:React.FC<ConfectionaryPropsExt> = (props: ConfectionaryProps
                         <IonLabel>In Cluj: {props.inCluj ? "Yes👍" : "No👎"}</IonLabel>
                         <IonLabel>Rating: {props.rating}⭐</IonLabel>
                     </div>
+                    {
                     <IonButton color="danger" expand="block" onClick={(e) => {
                         e.stopPropagation();
-                        console.log(`delete click ${props._id}`);
-                        props._id && deleteConfectionary?.(props._id);
+                        const id = props._id ?? props.localId?.toString();
+                        console.log(`delete click ${id}`);
+                        id && deleteConfectionary?.(id);
                     }}>
                         🗑️
-                    </IonButton>
+                    </IonButton>}
                 </IonItem>
             </IonCardContent>
         </IonCard>

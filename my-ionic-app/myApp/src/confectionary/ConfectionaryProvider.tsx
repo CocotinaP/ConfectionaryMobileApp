@@ -86,7 +86,7 @@ const reducer: (state: ConfectionariesState, action: ActionProps) => Confectiona
             case DELETE_CONFECTIONARY_SUCCEEDED:
                 const id = payload.id;
                 return {...state,
-                confectionaries: (state.confectionaries || []).filter(c => c._id !== id), deleting: false};
+                    confectionaries: (state.confectionaries || []).filter(c => c._id !== id), deleting: false};
             case DELETE_CONFECTIONARY_FAILED:
                 return {...state, deletingError: payload.error, fetching: false};
             case 'SAVE_CONFECTIONARY_OFFLINE':
@@ -142,6 +142,27 @@ export const ConfectionaryProvider: React.FC<ConfectionaryProviderProps> = ({chi
     }
 
     async function syncOfflineItems() {
+        // Sincronizare ștergeri
+        const { value: deleteValue } = await Preferences.get({ key: 'offlineDeletes' });
+        const deleteIds: string[] = deleteValue ? JSON.parse(deleteValue) : [];
+        const remainingDeletes: string[] = [];
+
+        for (const id of deleteIds) {
+            try {
+                await deleteConfectionaryApi(token, id);
+                dispatch({ type: DELETE_CONFECTIONARY_SUCCEEDED, payload: { id } });
+            } catch (e) {
+                log("Sync delete failed for id:", id);
+                remainingDeletes.push(id);
+            }
+        }
+
+        if (remainingDeletes.length === 0) {
+            await Preferences.remove({ key: 'offlineDeletes' });
+        } else {
+            await Preferences.set({ key: 'offlineDeletes', value: JSON.stringify(remainingDeletes) });
+        }
+
         const { value } = await Preferences.get({ key: 'offlineItems' });
         const items: ConfectionaryProps[] = value ? JSON.parse(value) : [];
 
@@ -249,8 +270,10 @@ export const ConfectionaryProvider: React.FC<ConfectionaryProviderProps> = ({chi
     async function saveConfectionariesCallback(confectionary: ConfectionaryProps) {
         dispatch({ type: SAVE_CONFECTIONARIES_STARTED });
 
-        if (!isOnline) {
-            log("Offline - storing locally");
+        const status = await Network.getStatus();
+
+        if (!status.connected) {
+            log("Offline — storing locally");
             const localItem = { ...confectionary, localId: Date.now() };
             await storeOfflineItem(localItem);
             dispatch({
@@ -260,32 +283,129 @@ export const ConfectionaryProvider: React.FC<ConfectionaryProviderProps> = ({chi
             return;
         }
 
-
         try {
-            log("saveConfectionaries started");
+            log("Online — attempting save");
             const savedConfectionary = await (confectionary._id
                 ? updateConfectionary(token, confectionary)
                 : createConfectionary(token, confectionary));
-            log("saveConfectionaries succeeded");
-            dispatch({ type: SAVE_CONFECTIONARIES_SUCCEEDED, payload: { confectionary: savedConfectionary } });
+            dispatch({
+                type: SAVE_CONFECTIONARIES_SUCCEEDED,
+                payload: { confectionary: savedConfectionary },
+            });
         } catch (error) {
-            log("saveConfectionaries failed", error);
-
-            // Verificăm din nou dacă suntem offline în momentul eșecului
-            const status = await Network.getStatus();
-            if (!status.connected) {
-                log("REST failed because we're offline — storing locally");
-                await storeOfflineItem(confectionary);
+            const fallbackStatus = await Network.getStatus();
+            if (!fallbackStatus.connected) {
+                log("Save failed — offline fallback");
+                const localItem = { ...confectionary, localId: Date.now() };
+                await storeOfflineItem(localItem);
                 dispatch({
                     type: SAVE_CONFECTIONARY_OFFLINE,
-                    payload: { confectionary },
+                    payload: { confectionary: localItem },
                 });
             } else {
-                dispatch({ type: SAVE_CONFECTIONARIES_FAILED, payload: { error } });
+                log("Save failed — network error");
+                dispatch({
+                    type: SAVE_CONFECTIONARIES_FAILED,
+                    payload: { error },
+                });
             }
         }
     }
 
+
+
+    async function deleteLocalOffline(localId: number) {
+        log("Deleting local-only item");
+
+        // Elimină din state
+        dispatch({ type: REMOVE_LOCAL_ITEM, payload: { localId } });
+
+        // Elimină din Preferences
+        const { value } = await Preferences.get({ key: 'offlineItems' });
+        const items = value ? JSON.parse(value) : [];
+        const filtered = items.filter((item: ConfectionaryProps) => item.localId !== localId);
+        await Preferences.set({ key: 'offlineItems', value: JSON.stringify(filtered) });
+
+        // Actualizează numărul de elemente offline
+        dispatch({ type: UPDATE_OFFLINE_COUNT, payload: { count: filtered.length } });
+    }
+
+
+    /*
+    async function deleteConfectionaryCallback(id: string) {
+        const normalizedId = id.trim();
+
+        // Caută itemul în state
+        const item = state.confectionaries?.find(c =>
+            c._id?.trim() === normalizedId || c.localId?.toString().trim() === normalizedId
+        );
+
+        if (!item) {
+            log("Item not found — nothing to delete:", normalizedId);
+            return;
+        }
+
+        // 🔁 Dacă itemul nu are _id → e local → ștergere locală
+        if (!item._id && item.localId) {
+            log("Offline item — deleting locally");
+            await deleteLocalOffline(item.localId);
+            dispatch({
+                type: DELETE_CONFECTIONARY_SUCCEEDED,
+                payload: { id: item.localId.toString() },
+            });
+            return;
+        }
+
+        // 🔁 Verificare rețea în timp real
+        const status = await Network.getStatus();
+        if (!status.connected) {
+            log("Offline — storing delete request for later");
+            await storeOfflineDelete(id);
+            dispatch({
+                type: DELETE_CONFECTIONARY_SUCCEEDED,
+                payload: { id },
+            });
+            return;
+        }
+
+        // 🔁 Cerere către server
+        try {
+            log("Online — attempting server delete");
+            await deleteConfectionaryApi(token, id);
+            log("Server delete succeeded");
+            dispatch({
+                type: DELETE_CONFECTIONARY_SUCCEEDED,
+                payload: { id },
+            });
+        } catch (error) {
+            log("Server delete failed", error);
+
+            // 🔁 Fallback: verificăm din nou dacă suntem offline
+            const fallbackStatus = await Network.getStatus();
+            if (!fallbackStatus.connected) {
+                log("Offline fallback — deleting locally");
+
+                if (item.localId) {
+                    await deleteLocalOffline(item.localId);
+                    dispatch({
+                        type: DELETE_CONFECTIONARY_SUCCEEDED,
+                        payload: { id: item.localId.toString() },
+                    });
+                } else {
+                    await storeOfflineDelete(id);
+                    dispatch({
+                        type: DELETE_CONFECTIONARY_SUCCEEDED,
+                        payload: { id },
+                    });
+                }
+            } else {
+                dispatch({
+                    type: DELETE_CONFECTIONARY_FAILED,
+                    payload: { error },
+                });
+            }
+        }
+    }*/
 
     async function deleteConfectionaryCallback(id: string){
         try{
@@ -298,6 +418,18 @@ export const ConfectionaryProvider: React.FC<ConfectionaryProviderProps> = ({chi
             dispatch({type: DELETE_CONFECTIONARY_FAILED, payload: { error}});
         }
     }
+
+
+
+    async function storeOfflineDelete(id: string) {
+        const { value } = await Preferences.get({ key: 'offlineDeletes' });
+        const deletes = value ? JSON.parse(value) : [];
+        deletes.push(id);
+        await Preferences.set({ key: 'offlineDeletes', value: JSON.stringify(deletes) });
+
+        dispatch({ type: DELETE_CONFECTIONARY_SUCCEEDED, payload: { id } });
+    }
+
 
     function wsEffect(){
         let canceled = false;

@@ -1,6 +1,8 @@
 import Router from "koa-router";
 import dataStore from "nedb-promise";
 import { broadcast } from "./wss.js";
+import multer from "koa-multer";
+import path from "path";
 
 export class ConfectionaryStore {
   constructor({ filename, autoload }) {
@@ -35,6 +37,18 @@ export class ConfectionaryStore {
     return this.store.remove(props);
   }
 }
+
+// configurare storage
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, path.join(process.cwd(), "uploads")); // folderul unde salvezi imaginile
+  },
+  filename: (req, file, cb) => {
+    cb(null, Date.now() + path.extname(file.originalname));
+  },
+});
+
+const upload = multer({ storage });
 
 const confectionaryStore = new ConfectionaryStore({
   filename: "./db/confectionaries.json",
@@ -87,6 +101,81 @@ const createConfectionary = async (ctx, item, response) => {
     response.status = 400;
   }
 };
+
+/*
+confectionaryRouter.post("/upload", upload.single("image"), async (ctx) => {
+  console.log("ctx.file:", ctx.file);
+  console.log("ctx.req.file:", ctx.req.file);
+
+  const file = ctx.file || ctx.req.file;
+
+  if (!file) {
+    ctx.response.status = 400;
+    ctx.response.body = { message: "No file uploaded" };
+    return;
+  }
+
+  ctx.response.body = { imagePath: `/uploads/${file.filename}` };
+  ctx.response.status = 201;
+});*/
+
+confectionaryRouter.post(
+  "/upload/:id?",
+  upload.single("image"),
+  async (ctx) => {
+    const file = ctx.file || ctx.req.file;
+    if (!file) {
+      ctx.response.status = 400;
+      ctx.response.body = { message: "No file uploaded" };
+      return;
+    }
+
+    const userId = ctx.state.user._id;
+    const photoPath = `/uploads/${file.filename}`;
+
+    if (ctx.params.id) {
+      // update existing confectionary
+      const id = ctx.params.id;
+      const confectionary = await confectionaryStore.findOne({ _id: id });
+      if (!confectionary) {
+        ctx.response.status = 404;
+        ctx.response.body = { message: "Confectionary not found" };
+        return;
+      }
+      if (confectionary.userId !== userId) {
+        ctx.response.status = 403;
+        ctx.response.body = { message: "Forbidden" };
+        return;
+      }
+
+      confectionary.photoPath = photoPath;
+      await confectionaryStore.update({ _id: id }, confectionary);
+
+      ctx.response.body = confectionary;
+      ctx.response.status = 200;
+      broadcast(userId, { event: "updated", payload: { confectionary } });
+    } else {
+      // create new confectionary with image
+      const item = {
+        name: ctx.request.body.name,
+        inCluj:
+          ctx.request.body.inCluj === "true" ||
+          ctx.request.body.inCluj === true,
+        userId,
+        date: new Date(),
+        photoPath,
+      };
+      const savedItem = await confectionaryStore.insert(item);
+
+      ctx.response.body = savedItem;
+      ctx.response.status = 201;
+      broadcast(userId, {
+        event: "created",
+        payload: { confectionary: savedItem },
+      });
+    }
+  }
+);
 
 confectionaryRouter.post(
   "/",

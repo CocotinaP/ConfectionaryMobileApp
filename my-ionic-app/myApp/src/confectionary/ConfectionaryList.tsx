@@ -113,7 +113,7 @@ const ConfectionaryList: React.FC<RouteComponentProps> = ({ history }) => {
                 <IonLoading isOpen={fetching} message="Fetching confectionaries"/>
                 {visibleItems && (
                     <IonList>
-                        {visibleItems.map((c) => <Item onEdit={() => history.push(`/confectionary/${c._id}`)} key={c._id} _id={c._id} name={c.name} date={c.date} inCluj={c.inCluj} rating={c.rating}/>)}
+                        {visibleItems.map((c) => <Item onEdit={() => history.push(`/confectionary/${c._id}`)} key={c._id} _id={c._id} name={c.name} date={c.date} inCluj={c.inCluj} rating={c.rating} localId={c.localId} />)}
                     </IonList>
                 )}
                 {fetchingError && (

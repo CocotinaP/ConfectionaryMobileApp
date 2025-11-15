@@ -5,4 +5,5 @@ export interface ConfectionaryProps {
     inCluj : boolean;
     rating: number;
     localId?: any;
+    photoPath?: string;
 }

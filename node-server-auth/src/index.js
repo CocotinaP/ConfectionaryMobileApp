@@ -9,6 +9,9 @@ import { jwtConfig, timingLogger, exceptionHandler } from "./utils.js";
 import { initWss } from "./wss.js";
 import { confectionaryRouter } from "./confectionary.js";
 import { authRouter } from "./auth.js";
+import serve from "koa-static";
+import path from "path";
+import mount from "koa-mount";
 
 const app = new Koa();
 const server = http.createServer(app.callback());
@@ -18,7 +21,7 @@ initWss(wss);
 app.use(cors());
 app.use(timingLogger);
 app.use(exceptionHandler);
-app.use(bodyParser());
+app.use(mount("/uploads", serve(path.join(process.cwd(), "uploads"))));
 
 const prefix = "/api";
 
